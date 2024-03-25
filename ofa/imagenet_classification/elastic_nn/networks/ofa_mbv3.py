@@ -58,7 +58,7 @@ class OFAMobileNetV3(MobileNetV3):
         stride_stages = [1, 2, 2, 2, 1, 2]
         act_stages = ["relu", "relu", "relu", "h_swish", "h_swish", "h_swish"]
         se_stages = [False, False, True, False, True, True]
-        n_block_list = [1] + [max(self.depth_list)] * 5
+        n_block_list = [1] + [max(self.depth_list)] * 5 # 1 stage of size 1 + 5 stages of size 4
         width_list = []
         for base_width in base_stage_width[:-2]:
             width = make_divisible(
@@ -101,7 +101,7 @@ class OFAMobileNetV3(MobileNetV3):
             act_stages[1:],
             se_stages[1:],
         ):
-            # populate a list of index for each stage <=> [[1, 2, ..., 5], [6, 7, ... 10], ...]
+            # populate a list of index for each stage <=> [[1, 2, 3, 4], [6, 7, 8, 9], ...]
             self.block_group_info.append([_block_index + i for i in range(n_block)])
             _block_index += n_block
 
@@ -155,7 +155,8 @@ class OFAMobileNetV3(MobileNetV3):
         self.set_bn_param(momentum=bn_param[0], eps=bn_param[1])
 
         # runtime_depth
-        # [1, 5, 5, ... 5]
+        # <=> [1, 4, 4, 4, 4, 4]
+        # the max depth of each stage by default
         self.runtime_depth = [len(block_idx) for block_idx in self.block_group_info]
 
     """ MyNetwork required methods """
@@ -172,6 +173,7 @@ class OFAMobileNetV3(MobileNetV3):
         # blocks
         for stage_id, block_idx in enumerate(self.block_group_info):
             depth = self.runtime_depth[stage_id]
+            # active_idx allows to select only the x first block of a stage
             active_idx = block_idx[:depth]
             for idx in active_idx:
                 x = self.blocks[idx](x)
@@ -259,6 +261,8 @@ class OFAMobileNetV3(MobileNetV3):
         depth = val2list(d, len(self.block_group_info))
 
         for block, k, e in zip(self.blocks[1:], ks, expand_ratio):
+            # set each kernel size and expand ratio
+            # dynamically to the given values
             if k is not None:
                 block.conv.active_kernel_size = k
             if e is not None:
@@ -266,6 +270,7 @@ class OFAMobileNetV3(MobileNetV3):
 
         for i, d in enumerate(depth):
             if d is not None:
+                # protected by the min function to avoid stage larger than 4
                 self.runtime_depth[i] = min(len(self.block_group_info[i]), d)
 
     def set_constraint(self, include_list, constraint_type="depth"):
@@ -305,6 +310,7 @@ class OFAMobileNetV3(MobileNetV3):
         if not isinstance(ks_candidates[0], list):
             ks_candidates = [ks_candidates for _ in range(len(self.blocks) - 1)]
         for k_set in ks_candidates:
+            # choose a random kernel size among candidates for each block
             k = random.choice(k_set)
             ks_setting.append(k)
 
@@ -313,6 +319,7 @@ class OFAMobileNetV3(MobileNetV3):
         if not isinstance(expand_candidates[0], list):
             expand_candidates = [expand_candidates for _ in range(len(self.blocks) - 1)]
         for e_set in expand_candidates:
+            # choose a random expand ratio among candidates for each block
             e = random.choice(e_set)
             expand_setting.append(e)
 
@@ -323,6 +330,7 @@ class OFAMobileNetV3(MobileNetV3):
                 depth_candidates for _ in range(len(self.block_group_info))
             ]
         for d_set in depth_candidates:
+            # choose a random depth among candidates for each stage
             d = random.choice(d_set)
             depth_setting.append(d)
 
@@ -335,6 +343,7 @@ class OFAMobileNetV3(MobileNetV3):
         }
 
     def get_active_subnet(self, preserve_weight=True):
+        # deepcopy the network
         first_conv = copy.deepcopy(self.first_conv)
         blocks = [copy.deepcopy(self.blocks[0])]
 

@@ -290,6 +290,7 @@ def train_elastic_depth(train_func, run_manager, args, validate_func_dict):
         dynamic_net = dynamic_net.module
 
     depth_stage_list = dynamic_net.depth_list.copy()
+    # We begin to train with the largest values
     depth_stage_list.sort(reverse=True)
     n_stages = len(depth_stage_list) - 1
     current_stage = n_stages - 1

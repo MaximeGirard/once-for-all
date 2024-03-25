@@ -1,4 +1,15 @@
 # Once-for-All: Train One Network and Specialize it for Efficient Deployment [[arXiv]](https://arxiv.org/abs/1908.09791) [[Slides]](https://file.lzhu.me/projects/OnceForAll/OFA%20Slides.pdf) [[Video]](https://youtu.be/a_OeT8MXzWI)
+
+Welcome to the Once-for-All repository!
+
+This repository is a fork of the original Once-for-All repository. The purpose of this fork is to add comments to the code in the other repository, providing a more detailed explanation of the implementation.
+
+Please note that the code and content in this repository are based on the original Once-for-All repository, which is developed by Han Cai, Chuang Gan, Tianzhe Wang, Zhekai Zhang, and Song Han. For more information about the Once-for-All project, please refer to the original repository and the associated research paper.
+
+To get started, please navigate to the code files and explore the comments added to understand the implementation better.
+
+
+# Once-for-All: Train One Network and Specialize it for Efficient Deployment [[arXiv]](https://arxiv.org/abs/1908.09791) [[Slides]](https://file.lzhu.me/projects/OnceForAll/OFA%20Slides.pdf) [[Video]](https://youtu.be/a_OeT8MXzWI)
 ```BibTex
 @inproceedings{
   cai2020once,
