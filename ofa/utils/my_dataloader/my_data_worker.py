@@ -18,6 +18,7 @@ from torch.utils.data._utils import (
 )
 
 from .my_random_resize_crop import MyRandomResizedCrop
+from queue import Empty
 
 __all__ = ["worker_loop"]
 
@@ -194,7 +195,7 @@ def worker_loop(
         while watchdog.is_alive():
             try:
                 r = index_queue.get(timeout=MP_STATUS_CHECK_INTERVAL)
-            except queue.Empty:
+            except Empty:
                 continue
             if r is None:
                 # Received the final signal

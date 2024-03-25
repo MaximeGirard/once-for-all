@@ -13,7 +13,7 @@ from ofa.model_zoo import ofa_net
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "-p", "--path", help="The path of imagenet", type=str, default="/dataset/imagenet"
+    "-p", "--path", help="The path of imagenet", type=str, default="imagenette2/"
 )
 parser.add_argument("-g", "--gpu", help="The gpu(s) to use", type=str, default="all")
 parser.add_argument(

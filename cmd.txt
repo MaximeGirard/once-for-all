@@ -1,0 +1,11 @@
+CUDA_HOME=/usr/local/cuda-11.3
+HOROVOD_WITHOUT_GLOO=1
+HOROVOD_CUDA_HOME=/usr/local/cuda-11.3
+HOROVOD_NCCL_LINK=SHARED
+HOROVOD_NCCL_HOME=/home/mgirard/nccl_2.9.9-1+cuda11.3_x86_64
+HOROVOD_GPU_OPERATIONS=NCCL
+HOROVOD_WITH_MPI=1
+HOROVOD_WITH_PYTORCH=1
+HOROVOD_WITHOUT_TENSORFLOW=1
+HOROVOD_WITHOUT_MXNET=1
+pip install --no-cache-dir git+https://github.com/thomas-bouvier/horovod.git@compile-cpp17

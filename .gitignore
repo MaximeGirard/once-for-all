@@ -113,3 +113,9 @@ venv.bak/
 *.xml
 *.iml
 /bash/distributed_imagenet.sh
+
+# dataset
+imagenette2/*
+
+.torch/*
+exp/*

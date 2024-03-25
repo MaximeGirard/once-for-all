@@ -43,6 +43,7 @@ class OFAMobileNetV3(MobileNetV3):
         self.expand_ratio_list.sort()
         self.depth_list.sort()
 
+        # Channel number between each stage
         base_stage_width = [16, 16, 24, 40, 80, 112, 160, 960, 1280]
 
         final_expand_width = make_divisible(
@@ -52,6 +53,8 @@ class OFAMobileNetV3(MobileNetV3):
             base_stage_width[-1] * self.width_mult, MyNetwork.CHANNEL_DIVISIBLE
         )
 
+        # Hardcoded 6 stages
+        # All the parameters for each stage are hardcoded
         stride_stages = [1, 2, 2, 2, 1, 2]
         act_stages = ["relu", "relu", "relu", "h_swish", "h_swish", "h_swish"]
         se_stages = [False, False, True, False, True, True]
@@ -90,6 +93,7 @@ class OFAMobileNetV3(MobileNetV3):
         _block_index = 1
         feature_dim = first_block_dim
 
+        # Loop through the intermediate stages
         for width, n_block, s, act_func, use_se in zip(
             width_list[2:],
             n_block_list[1:],
@@ -97,15 +101,18 @@ class OFAMobileNetV3(MobileNetV3):
             act_stages[1:],
             se_stages[1:],
         ):
+            # populate a list of index for each stage <=> [[1, 2, ..., 5], [6, 7, ... 10], ...]
             self.block_group_info.append([_block_index + i for i in range(n_block)])
             _block_index += n_block
 
             output_channel = width
+            # for each block in the stage
             for i in range(n_block):
                 if i == 0:
                     stride = s
                 else:
                     stride = 1
+                # Create a Dynamic Inverted bottleneck block
                 mobile_inverted_conv = DynamicMBConvLayer(
                     in_channel_list=val2list(feature_dim),
                     out_channel_list=val2list(output_channel),
@@ -115,12 +122,16 @@ class OFAMobileNetV3(MobileNetV3):
                     act_func=act_func,
                     use_se=use_se,
                 )
+                
+                # When at the end : create a residual shortcut
                 if stride == 1 and feature_dim == output_channel:
                     shortcut = IdentityLayer(feature_dim, feature_dim)
                 else:
                     shortcut = None
                 blocks.append(ResidualBlock(mobile_inverted_conv, shortcut))
                 feature_dim = output_channel
+                
+                
         # final expand layer, feature mix layer & classifier
         final_expand_layer = ConvLayer(
             feature_dim, final_expand_width, kernel_size=1, act_func="h_swish"
@@ -144,6 +155,7 @@ class OFAMobileNetV3(MobileNetV3):
         self.set_bn_param(momentum=bn_param[0], eps=bn_param[1])
 
         # runtime_depth
+        # [1, 5, 5, ... 5]
         self.runtime_depth = [len(block_idx) for block_idx in self.block_group_info]
 
     """ MyNetwork required methods """
