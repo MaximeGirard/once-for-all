@@ -30,6 +30,7 @@ __all__ = [
 ]
 
 
+# Define the validate function
 def validate(
     run_manager,
     epoch=0,
@@ -41,12 +42,15 @@ def validate(
     width_mult_list=None,
     additional_setting=None,
 ):
+    # Get the dynamic network from the run manager
     dynamic_net = run_manager.net
     if isinstance(dynamic_net, nn.DataParallel):
         dynamic_net = dynamic_net.module
 
+    # Set the dynamic network to evaluation mode
     dynamic_net.eval()
 
+    # Set default values for the input parameters if not provided
     if image_size_list is None:
         image_size_list = val2list(run_manager.run_config.data_provider.image_size, 1)
     if ks_list is None:
@@ -61,6 +65,7 @@ def validate(
         else:
             width_mult_list = [0]
 
+    # Create a list of subnet settings to evaluate
     subnet_settings = []
     for d in depth_list:
         for e in expand_ratio_list:
@@ -82,28 +87,44 @@ def validate(
     if additional_setting is not None:
         subnet_settings += additional_setting
 
+    # Initialize lists to store losses and accuracies of subnets
     losses_of_subnets, top1_of_subnets, top5_of_subnets = [], [], []
 
+    # Initialize a string to store the validation log
     valid_log = ""
+
+    # Iterate over each subnet setting
     for setting, name in subnet_settings:
+        # Write a log for the current subnet setting
         run_manager.write_log(
             "-" * 30 + " Validate %s " % name + "-" * 30, "train", should_print=False
         )
+        
+        # Assign the active image size to the data provider
         run_manager.run_config.data_provider.assign_active_img_size(
             setting.pop("image_size")
         )
+        
+        # Set the active subnet in the dynamic network
         dynamic_net.set_active_subnet(**setting)
-        run_manager.write_log(dynamic_net.module_str, "train", should_print=False)
-
+        
+        # Reset the running statistics of the dynamic network
         run_manager.reset_running_statistics(dynamic_net)
+        
+        # Perform validation on the current subnet setting
         loss, (top1, top5) = run_manager.validate(
             epoch=epoch, is_test=is_test, run_str=name, net=dynamic_net
         )
+        
+        # Append the loss and accuracies to the respective lists
         losses_of_subnets.append(loss)
         top1_of_subnets.append(top1)
         top5_of_subnets.append(top5)
+        
+        # Update the validation log
         valid_log += "%s (%.3f), " % (name, top1)
 
+    # Calculate the mean loss and accuracies of all subnets
     return (
         list_mean(losses_of_subnets),
         list_mean(top1_of_subnets),
@@ -112,7 +133,8 @@ def validate(
     )
 
 
-def train_one_epoch(run_manager, args, epoch, warmup_epochs=0, warmup_lr=0):
+# Define the train_one_epoch function
+def train_one_epoch(run_manager, parameters, epoch, warmup_epochs=0, warmup_lr=0):
     dynamic_net = run_manager.network
     distributed = isinstance(run_manager, DistributedRunManager)
 
@@ -128,6 +150,7 @@ def train_one_epoch(run_manager, args, epoch, warmup_epochs=0, warmup_lr=0):
     losses = DistributedMetric("train_loss") if distributed else AverageMeter()
     metric_dict = run_manager.get_metric_dict()
 
+    # Use tqdm to display progress bar
     with tqdm(
         total=nBatch,
         desc="Train Epoch #{}".format(epoch + 1),
@@ -137,6 +160,8 @@ def train_one_epoch(run_manager, args, epoch, warmup_epochs=0, warmup_lr=0):
         for i, (images, labels) in enumerate(run_manager.run_config.train_loader):
             MyRandomResizedCrop.BATCH = i
             data_time.update(time.time() - end)
+
+            # Adjust learning rate during warmup phase
             if epoch < warmup_epochs:
                 new_lr = run_manager.run_config.warmup_adjust_learning_rate(
                     run_manager.optimizer,
@@ -155,19 +180,22 @@ def train_one_epoch(run_manager, args, epoch, warmup_epochs=0, warmup_lr=0):
             target = labels
 
             # soft target
-            if args.kd_ratio > 0:
-                args.teacher_model.train()
+            if parameters['kd_ratio'] > 0:
+                # Set the teacher model to train mode
+                parameters['teacher_model'].train()
+                # Disable gradient calculation for the teacher model
                 with torch.no_grad():
-                    soft_logits = args.teacher_model(images).detach()
+                    # Get the soft logits from the teacher model
+                    soft_logits = parameters['teacher_model'](images).detach()
+                    # Convert the soft logits to soft labels using softmax function
                     soft_label = F.softmax(soft_logits, dim=1)
 
             # clean gradients
             dynamic_net.zero_grad()
 
             loss_of_subnets = []
-            # compute output
             subnet_str = ""
-            for _ in range(args.dynamic_batch_size):
+            for _ in range(parameters['dynamic_batch_size']):
                 # set random seed before sampling
                 subnet_seed = int("%d%.3d%.3d" % (epoch * nBatch + i, _, 0))
                 random.seed(subnet_seed)
@@ -179,9 +207,11 @@ def train_one_epoch(run_manager, args, epoch, warmup_epochs=0, warmup_lr=0):
                             "%s_%s"
                             % (
                                 key,
-                                "%.1f" % subset_mean(val, 0)
-                                if isinstance(val, list)
-                                else val,
+                                (
+                                    "%.1f" % subset_mean(val, 0)
+                                    if isinstance(val, list)
+                                    else val
+                                ),
                             )
                             for key, val in subnet_settings.items()
                         ]
@@ -190,22 +220,22 @@ def train_one_epoch(run_manager, args, epoch, warmup_epochs=0, warmup_lr=0):
                 )
 
                 output = run_manager.net(images)
-                if args.kd_ratio == 0:
+                if parameters['kd_ratio'] == 0:
                     loss = run_manager.train_criterion(output, labels)
                     loss_type = "ce"
                 else:
-                    if args.kd_type == "ce":
+                    # Calculate the knowledge distillation loss
+                    if parameters['kd_type'] == "ce":
                         kd_loss = cross_entropy_loss_with_soft_target(
                             output, soft_label
                         )
                     else:
                         kd_loss = F.mse_loss(output, soft_logits)
-                    loss = args.kd_ratio * kd_loss + run_manager.train_criterion(
+                    loss = parameters['kd_ratio'] * kd_loss + run_manager.train_criterion(
                         output, labels
                     )
-                    loss_type = "%.1fkd-%s & ce" % (args.kd_ratio, args.kd_type)
+                    loss_type = "%.1fkd-%s & ce" % (parameters['kd_ratio'], parameters['kd_type'])
 
-                # measure accuracy and record loss
                 loss_of_subnets.append(loss)
                 run_manager.update_metric(metric_dict, output, target)
 
@@ -228,44 +258,58 @@ def train_one_epoch(run_manager, args, epoch, warmup_epochs=0, warmup_lr=0):
             )
             t.update(1)
             end = time.time()
+
     return losses.avg.item(), run_manager.get_metric_vals(metric_dict)
 
 
-def train(run_manager, args, validate_func=None):
+def train(run_manager, parameters, validate_func=None):
+    # Check if the run_manager is distributed
     distributed = isinstance(run_manager, DistributedRunManager)
+    # Set the default validate function to the provided validate_func or the validate function from the previous code
     if validate_func is None:
         validate_func = validate
 
+    # Loop through each epoch
     for epoch in range(
-        run_manager.start_epoch, run_manager.run_config.n_epochs + args.warmup_epochs
+        run_manager.start_epoch, run_manager.run_config.n_epochs + parameters['warmup_epochs']
     ):
+        # Train one epoch and get the loss and accuracy
         train_loss, (train_top1, train_top5) = train_one_epoch(
-            run_manager, args, epoch, args.warmup_epochs, args.warmup_lr
+            run_manager, parameters, epoch, parameters['warmup_epochs'], parameters['warmup_lr']
         )
 
-        if (epoch + 1) % args.validation_frequency == 0:
+        # Check if it's time to perform validation
+        if (epoch + 1) % parameters['validation_frequency'] == 0:
+            # Perform validation and get the loss, accuracy, and log
             val_loss, val_acc, val_acc5, _val_log = validate_func(
                 run_manager, epoch=epoch, is_test=False
             )
-            # best_acc
+            # Check if the current accuracy is the best so far
             is_best = val_acc > run_manager.best_acc
+            # Update the best accuracy if necessary
             run_manager.best_acc = max(run_manager.best_acc, val_acc)
+            # Check if the run_manager is distributed and if it's the root process
             if not distributed or run_manager.is_root:
+                # Create the validation log string
                 val_log = (
                     "Valid [{0}/{1}] loss={2:.3f}, top-1={3:.3f} ({4:.3f})".format(
-                        epoch + 1 - args.warmup_epochs,
+                        epoch + 1 - parameters['warmup_epochs'],
                         run_manager.run_config.n_epochs,
                         val_loss,
                         val_acc,
                         run_manager.best_acc,
                     )
                 )
+                # Add the train top-1 accuracy and train loss to the validation log
                 val_log += ", Train top-1 {top1:.3f}, Train loss {loss:.3f}\t".format(
                     top1=train_top1, loss=train_loss
                 )
+                # Add the validation log from the previous code to the validation log string
                 val_log += _val_log
+                # Write the validation log to the run_manager's log file
                 run_manager.write_log(val_log, "valid", should_print=False)
 
+                # Save the model checkpoint
                 run_manager.save_model(
                     {
                         "epoch": epoch,
@@ -284,7 +328,7 @@ def load_models(run_manager, dynamic_net, model_path=None):
     run_manager.write_log("Loaded init from %s" % model_path, "valid")
 
 
-def train_elastic_depth(train_func, run_manager, args, validate_func_dict):
+def train_elastic_depth(train_func, run_manager, parameters, validate_func_dict):
     dynamic_net = run_manager.net
     if isinstance(dynamic_net, nn.DataParallel):
         dynamic_net = dynamic_net.module
@@ -294,12 +338,15 @@ def train_elastic_depth(train_func, run_manager, args, validate_func_dict):
     depth_stage_list.sort(reverse=True)
     n_stages = len(depth_stage_list) - 1
     current_stage = n_stages - 1
+    
+    print("- Train with elastic depth using depth_list:", depth_stage_list)
+    print("- Current stage: %d/%d" % (current_stage, n_stages - 1))
 
     # load pretrained models
-    if run_manager.start_epoch == 0 and not args.resume:
+    if run_manager.start_epoch == 0 and not parameters['resume']:
         validate_func_dict["depth_list"] = sorted(dynamic_net.depth_list)
 
-        load_models(run_manager, dynamic_net, model_path=args.ofa_checkpoint_path)
+        load_models(run_manager, dynamic_net, model_path=parameters['ofa_checkpoint_path'])
         # validate after loading weights
         run_manager.write_log(
             "%.3f\t%.3f\t%.3f\t%s"
@@ -307,7 +354,7 @@ def train_elastic_depth(train_func, run_manager, args, validate_func_dict):
             "valid",
         )
     else:
-        assert args.resume
+        assert parameters['resume']
 
     run_manager.write_log(
         "-" * 30
@@ -330,14 +377,14 @@ def train_elastic_depth(train_func, run_manager, args, validate_func_dict):
     # train
     train_func(
         run_manager,
-        args,
+        parameters,
         lambda _run_manager, epoch, is_test: validate(
             _run_manager, epoch, is_test, **validate_func_dict
         ),
     )
 
 
-def train_elastic_expand(train_func, run_manager, args, validate_func_dict):
+def train_elastic_expand(train_func, run_manager, parameters, validate_func_dict):
     dynamic_net = run_manager.net
     if isinstance(dynamic_net, nn.DataParallel):
         dynamic_net = dynamic_net.module
@@ -347,11 +394,14 @@ def train_elastic_expand(train_func, run_manager, args, validate_func_dict):
     n_stages = len(expand_stage_list) - 1
     current_stage = n_stages - 1
 
+    print("- Train with elastic expand using expand_ratio_list:", expand_stage_list)
+    print("- Current stage: %d/%d" % (current_stage, n_stages - 1))
+
     # load pretrained models
-    if run_manager.start_epoch == 0 and not args.resume:
+    if run_manager.start_epoch == 0 and not parameters['resume']:
         validate_func_dict["expand_ratio_list"] = sorted(dynamic_net.expand_ratio_list)
 
-        load_models(run_manager, dynamic_net, model_path=args.ofa_checkpoint_path)
+        load_models(run_manager, dynamic_net, model_path=parameters['ofa_checkpoint_path'])
         dynamic_net.re_organize_middle_weights(expand_ratio_stage=current_stage)
         run_manager.write_log(
             "%.3f\t%.3f\t%.3f\t%s"
@@ -359,7 +409,7 @@ def train_elastic_expand(train_func, run_manager, args, validate_func_dict):
             "valid",
         )
     else:
-        assert args.resume
+        assert parameters['resume']
 
     run_manager.write_log(
         "-" * 30
@@ -381,14 +431,14 @@ def train_elastic_expand(train_func, run_manager, args, validate_func_dict):
     # train
     train_func(
         run_manager,
-        args,
+        parameters,
         lambda _run_manager, epoch, is_test: validate(
             _run_manager, epoch, is_test, **validate_func_dict
         ),
     )
 
 
-def train_elastic_width_mult(train_func, run_manager, args, validate_func_dict):
+def train_elastic_width_mult(train_func, run_manager, parameters, validate_func_dict):
     dynamic_net = run_manager.net
     if isinstance(dynamic_net, nn.DataParallel):
         dynamic_net = dynamic_net.module
@@ -397,9 +447,12 @@ def train_elastic_width_mult(train_func, run_manager, args, validate_func_dict):
     width_stage_list.sort(reverse=True)
     n_stages = len(width_stage_list) - 1
     current_stage = n_stages - 1
+    
+    print("- Train with elastic width_mult using width_mult_list:", width_stage_list)
+    print("- Current stage: %d/%d" % (current_stage, n_stages - 1))
 
-    if run_manager.start_epoch == 0 and not args.resume:
-        load_models(run_manager, dynamic_net, model_path=args.ofa_checkpoint_path)
+    if run_manager.start_epoch == 0 and not parameters['resume']:
+        load_models(run_manager, dynamic_net, model_path=parameters['ofa_checkpoint_path'])
         if current_stage == 0:
             dynamic_net.re_organize_middle_weights(
                 expand_ratio_stage=len(dynamic_net.expand_ratio_list) - 1
@@ -420,7 +473,7 @@ def train_elastic_width_mult(train_func, run_manager, args, validate_func_dict):
             "valid",
         )
     else:
-        assert args.resume
+        assert parameters['resume']
 
     run_manager.write_log(
         "-" * 30
@@ -434,7 +487,7 @@ def train_elastic_width_mult(train_func, run_manager, args, validate_func_dict):
     # train
     train_func(
         run_manager,
-        args,
+        parameters,
         lambda _run_manager, epoch, is_test: validate(
             _run_manager, epoch, is_test, **validate_func_dict
         ),

@@ -42,9 +42,9 @@ args = parser.parse_args()
 if args.task == "kernel":
     args.path = "exp/normal2kernel"
     args.dynamic_batch_size = 1
-    args.n_epochs = 120
+    args.n_epochs = 1
     args.base_lr = 3e-2
-    args.warmup_epochs = 5
+    args.warmup_epochs = 0
     args.warmup_lr = -1
     args.ks_list = "3,5,7"
     args.expand_list = "6"
@@ -53,7 +53,7 @@ elif args.task == "depth":
     args.path = "exp/kernel2kernel_depth/phase%d" % args.phase
     args.dynamic_batch_size = 2
     if args.phase == 1:
-        args.n_epochs = 25
+        args.n_epochs = 1
         args.base_lr = 2.5e-3
         args.warmup_epochs = 0
         args.warmup_lr = -1
@@ -61,9 +61,9 @@ elif args.task == "depth":
         args.expand_list = "6"
         args.depth_list = "3,4"
     else:
-        args.n_epochs = 120
+        args.n_epochs = 1
         args.base_lr = 7.5e-3
-        args.warmup_epochs = 5
+        args.warmup_epochs = 1
         args.warmup_lr = -1
         args.ks_list = "3,5,7"
         args.expand_list = "6"
@@ -72,7 +72,7 @@ elif args.task == "expand":
     args.path = "exp/kernel_depth2kernel_depth_width/phase%d" % args.phase
     args.dynamic_batch_size = 4
     if args.phase == 1:
-        args.n_epochs = 25
+        args.n_epochs = 1
         args.base_lr = 2.5e-3
         args.warmup_epochs = 0
         args.warmup_lr = -1
@@ -80,7 +80,7 @@ elif args.task == "expand":
         args.expand_list = "4,6"
         args.depth_list = "2,3,4"
     else:
-        args.n_epochs = 120
+        args.n_epochs = 1
         args.base_lr = 7.5e-3
         args.warmup_epochs = 5
         args.warmup_lr = -1
@@ -89,6 +89,10 @@ elif args.task == "expand":
         args.depth_list = "2,3,4"
 else:
     raise NotImplementedError
+
+args.label_mapping = label_mapping = [0, 217, 482, 491, 497, 566, 569, 571, 574, 701]
+args.remap_imagenette = True
+
 args.manual_seed = 0
 
 args.lr_schedule_type = "cosine"
@@ -204,6 +208,7 @@ if __name__ == "__main__":
         depth_list=args.depth_list,
     )
     # teacher model
+    # Used for soft targets (knowledge distillation)
     if args.kd_ratio > 0:
         args.teacher_model = MobileNetV3Large(
             n_classes=run_config.data_provider.n_classes,
@@ -243,10 +248,9 @@ if __name__ == "__main__":
         train,
     )
 
+    # Create a dictionary to store the validation function parameters
     validate_func_dict = {
-        "image_size_list": {224}
-        if isinstance(args.image_size, int)
-        else sorted({160, 224}),
+        "image_size_list": {224} if isinstance(args.image_size, int) else sorted({160, 224}),
         "ks_list": sorted({min(args.ks_list), max(args.ks_list)}),
         "expand_ratio_list": sorted({min(args.expand_list), max(args.expand_list)}),
         "depth_list": sorted({min(net.depth_list), max(net.depth_list)}),
@@ -254,6 +258,8 @@ if __name__ == "__main__":
     if args.task == "kernel":
         validate_func_dict["ks_list"] = sorted(args.ks_list)
         if distributed_run_manager.start_epoch == 0:
+            # The original (non elastic) net is trained for 150 epochs
+            # according to https://openreview.net/forum?id=HylxE1HKwS&noteId=ByxzZ83IYH
             args.ofa_checkpoint_path = download_url(
                 "https://raw.githubusercontent.com/han-cai/files/master/ofa/ofa_checkpoints/ofa_D4_E6_K7",
                 model_dir=".torch/ofa_checkpoints/%d" % hvd.rank(),
