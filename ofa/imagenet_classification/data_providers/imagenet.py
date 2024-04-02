@@ -172,11 +172,16 @@ class ImagenetDataProvider(DataProvider):
     def data_url(self):
         raise ValueError("unable to download %s" % self.name())
 
+    def remap_label(self, label):
+        # To remap for imagenette
+        label_mapping = [0, 217, 482, 491, 497, 566, 569, 571, 574, 701]
+        return label_mapping[label]
+
     def train_dataset(self, _transforms):
-        return datasets.ImageFolder(self.train_path, _transforms)
+        return datasets.ImageFolder(self.train_path, _transforms, target_transform=self.remap_label)
 
     def test_dataset(self, _transforms):
-        return datasets.ImageFolder(self.valid_path, _transforms)
+        return datasets.ImageFolder(self.valid_path, _transforms, target_transform=self.remap_label)
 
     @property
     def train_path(self):

@@ -194,7 +194,6 @@ class MobileNetV3(MyNetwork):
 
     def load_state_dict(self, state_dict, **kwargs):
         current_state_dict = self.state_dict()
-
         for key in state_dict:
             if key not in current_state_dict:
                 assert ".mobile_inverted_conv." in key

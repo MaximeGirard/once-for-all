@@ -119,3 +119,6 @@ imagenette2/*
 
 .torch/*
 exp/*
+imagenette_acc_predictor.pth
+trained_model/*
+untrained_model/*

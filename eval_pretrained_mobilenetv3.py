@@ -230,11 +230,10 @@ total = 0
 
 with torch.no_grad():
     for images, labels in run_config.test_loader:
-        labels_remapped = torch.tensor([label_mapping[label] for label in labels])
-        images, labels_remapped = images.cuda(), labels_remapped.cuda()
+        images, labels = images.cuda(), labels.cuda()
         outputs = net(images)
         _, predicted = torch.max(outputs, 1)
         total += labels.size(0)
-        correct += (predicted == labels_remapped).sum().item()
+        correct += (predicted == labels).sum().item()
         
 print('Accuracy of the network on the %d test images: %d %%' % (total, 100 * correct / total))

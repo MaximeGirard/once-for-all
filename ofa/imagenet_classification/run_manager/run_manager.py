@@ -181,8 +181,9 @@ class RunManager:
             self.start_epoch = checkpoint["epoch"] + 1
         if "best_acc" in checkpoint:
             self.best_acc = checkpoint["best_acc"]
-        if "optimizer" in checkpoint:
-            self.optimizer.load_state_dict(checkpoint["optimizer"])
+        # broken for now
+        #if "optimizer" in checkpoint:
+        #    self.optimizer.load_state_dict(checkpoint["optimizer"])
 
         print("=> loaded checkpoint '{}'".format(model_fname))
         return checkpoint
@@ -267,13 +268,12 @@ class RunManager:
             ) as t:
                 for i, (images, labels) in enumerate(data_loader):
                     # to use imagenette
-                    labels_remapped = torch.tensor([self.label_mapping[label] for label in labels])
-                    images, labels_remapped = images.to(self.device), labels_remapped.to(self.device)
+                    images, labels = images.to(self.device), labels.to(self.device)
                     # compute output
                     output = net(images)
-                    loss = self.test_criterion(output, labels_remapped)
+                    loss = self.test_criterion(output, labels)
                     # measure accuracy and record loss
-                    self.update_metric(metric_dict, output, labels_remapped)
+                    self.update_metric(metric_dict, output, labels)
 
                     losses.update(loss.item(), images.size(0))
                     t.set_postfix(
@@ -342,10 +342,9 @@ class RunManager:
                         self.optimizer, epoch - warmup_epochs, i, nBatch
                     )
 
-                labels_remapped = torch.tensor([self.label_mapping[label] for label in labels])
-                images, labels_remapped = images.to(self.device), labels_remapped.to(self.device)
+                images, labels = images.to(self.device), labels.to(self.device)
 
-                target = labels_remapped
+                target = labels
                 if isinstance(self.run_config.mixup_alpha, float):
                     # transform data
                     lam = random.betavariate(
@@ -358,7 +357,6 @@ class RunManager:
                         self.run_config.data_provider.n_classes,
                         self.run_config.label_smoothing,
                     )
-                    labels_remapped = torch.tensor([self.label_mapping[label] for label in labels]) 
 
                 # soft target
                 if args.teacher_model is not None:
@@ -369,7 +367,7 @@ class RunManager:
 
                 # compute output
                 output = self.net(images)
-                loss = self.train_criterion(output, labels_remapped)
+                loss = self.train_criterion(output, labels)
 
                 if args.teacher_model is None:
                     loss_type = "ce"

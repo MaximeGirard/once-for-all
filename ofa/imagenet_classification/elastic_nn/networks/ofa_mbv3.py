@@ -274,11 +274,11 @@ class OFAMobileNetV3(MobileNetV3):
                 self.runtime_depth[i] = min(len(self.block_group_info[i]), d)
 
         # print the active subnet
-        print("Active sub-network:")
-        print("  ks: %s" % ks)
-        print("  e: %s" % expand_ratio)
-        print("  d: %s" % depth)
-
+        # print("Active sub-network:")
+        # print("  ks: %s" % ks)
+        # print("  e: %s" % expand_ratio)
+        # print("  d: %s" % depth)
+        
     def set_constraint(self, include_list, constraint_type="depth"):
         if constraint_type == "depth":
             self.__dict__["_depth_include_list"] = include_list.copy()
