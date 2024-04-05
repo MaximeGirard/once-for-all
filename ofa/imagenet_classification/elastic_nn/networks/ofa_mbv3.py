@@ -155,7 +155,7 @@ class OFAMobileNetV3(MobileNetV3):
         self.set_bn_param(momentum=bn_param[0], eps=bn_param[1])
 
         # runtime_depth
-        # <=> [1, 4, 4, 4, 4, 4]
+        # <=> [4, 4, 4, 4, 4]
         # the max depth of each stage by default
         self.runtime_depth = [len(block_idx) for block_idx in self.block_group_info]
 
@@ -177,6 +177,7 @@ class OFAMobileNetV3(MobileNetV3):
             active_idx = block_idx[:depth]
             for idx in active_idx:
                 x = self.blocks[idx](x)
+
         x = self.final_expand_layer(x)
         x = x.mean(3, keepdim=True).mean(2, keepdim=True)  # global average pooling
         x = self.feature_mix_layer(x)
@@ -251,7 +252,7 @@ class OFAMobileNetV3(MobileNetV3):
     """ set, sample and get active sub-networks """
 
     def set_max_net(self):
-        self.set_active_subnet(
+        return self.set_active_subnet(
             ks=max(self.ks_list), e=max(self.expand_ratio_list), d=max(self.depth_list)
         )
 
@@ -259,7 +260,6 @@ class OFAMobileNetV3(MobileNetV3):
         ks = val2list(ks, len(self.blocks) - 1)
         expand_ratio = val2list(e, len(self.blocks) - 1)
         depth = val2list(d, len(self.block_group_info))
-
         for block, k, e in zip(self.blocks[1:], ks, expand_ratio):
             # set each kernel size and expand ratio
             # dynamically to the given values
@@ -273,6 +273,12 @@ class OFAMobileNetV3(MobileNetV3):
                 # protected by the min function to avoid stage larger than 4
                 self.runtime_depth[i] = min(len(self.block_group_info[i]), d)
 
+        return {
+            "ks": ks,
+            "e": expand_ratio,
+            "d": depth,
+        }
+        
         # print the active subnet
         # print("Active sub-network:")
         # print("  ks: %s" % ks)

@@ -7,7 +7,8 @@ from ofa.imagenet_classification.run_manager import ImagenetRunConfig, RunManage
 from ofa.imagenet_classification.elastic_nn.networks import OFAMobileNetV3
 from ofa.utils import AverageMeter
 from ofa.nas.accuracy_predictor import MobileNetArchEncoder
-from viz import draw_arch
+import pickle
+from mcunet.utils.arch_visualization_helper import draw_arch
 
 # Define arguments
 args = {
@@ -57,8 +58,7 @@ arch_encoder = MobileNetArchEncoder(
     expand_list=args["expand_list"],
     ks_list=args["ks_list"],
 )
-
-
+    
 # Function to validate model
 def validate_model(model, data_loader, device):
     accuracies = AverageMeter()
@@ -88,9 +88,7 @@ def test_subnet(run_manager, config):
     print(config)
     # set the active subnet
     ofa_network = run_manager.net
-    ofa_network.set_active_subnet(
-        ks=config["ks"], expand_ratio=config["e"], depth=config["d"]
-    )
+    ofa_network.set_active_subnet(ks=config["ks"], expand_ratio=config["e"], depth=config["d"])
     run_config.data_provider.assign_active_img_size(config["image_size"])
     run_manager.reset_running_statistics(net=ofa_network)
     data_loader = run_manager.run_config.test_loader
@@ -116,32 +114,20 @@ def test_random_subnet(run_manager, n_subnet=100):
 # Load and test trained model
 path = "trained_model"
 run_manager = load_model(path)
-max_config = {
-    "ks": [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7],
-    "e": [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6],
-    "d": [4, 4, 4, 4, 4],
-    "image_size": 224,
-}
-min_config = {
-    "ks": [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
-    "e": [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
-    "d": [2, 2, 2, 2, 2],
-    "image_size": 128,
-}
+run_manager.net.set_max_net()
 
-random_config = run_manager.net.sample_active_subnet()
-random_config["image_size"] = random.choice(args["image_size"])
+# Test random subnets
+configs, accuracies = test_random_subnet(run_manager, n_subnet=1000)
 
-config = random_config
-
-# test_subnet(run_manager, config)
-run_manager.net.set_active_subnet(ks=config["ks"], e=config["e"], d=config["d"])
-
-subnet = run_manager.net.get_active_subnet()
-print(subnet)
-
-draw_arch(
-    ofa_net=run_manager.net,
-    resolution=config["image_size"],
-    out_name="nets_graphs/random_net",
-)
+# Map all configs to a feature
+features = []
+for config in configs:
+    feature = arch_encoder.arch2feature(config)
+    features.append(feature)
+    
+# save the dataset into a pickle
+with open("imagenette_features.pkl", "wb") as f:
+    pickle.dump({
+        "features": features,
+        "accuracies": accuracies
+    }, f)

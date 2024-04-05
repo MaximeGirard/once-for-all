@@ -1,16 +1,4 @@
-# Once for All: Train One Network and Specialize it for Efficient Deployment
-# Han Cai, Chuang Gan, Tianzhe Wang, Zhekai Zhang, Song Han
-# International Conference on Learning Representations (ICLR), 2020.
-
-import copy
-import random
-import numpy as np
-from tqdm import tqdm
-
-__all__ = ["EvolutionFinder"]
-
-
-class EvolutionFinder:
+class EvolutionSearcher:
     def __init__(self, efficiency_predictor, accuracy_predictor, **kwargs):
         self.efficiency_predictor = efficiency_predictor
         self.accuracy_predictor = accuracy_predictor
@@ -34,7 +22,7 @@ class EvolutionFinder:
         while True:
             sample = self.arch_manager.random_sample_arch()
             efficiency = self.efficiency_predictor.get_efficiency(sample)
-            if efficiency <= constraint:
+            if self.efficiency_predictor.satisfy_constraint(efficiency, constraint):
                 return sample, efficiency
 
     def mutate_sample(self, sample, constraint):
@@ -42,10 +30,11 @@ class EvolutionFinder:
             new_sample = copy.deepcopy(sample)
 
             self.arch_manager.mutate_resolution(new_sample, self.resolution_mutate_prob)
+            self.arch_manager.mutate_width(new_sample, self.arch_mutate_prob)
             self.arch_manager.mutate_arch(new_sample, self.arch_mutate_prob)
 
             efficiency = self.efficiency_predictor.get_efficiency(new_sample)
-            if efficiency <= constraint:
+            if self.efficiency_predictor.satisfy_constraint(efficiency, constraint):
                 return new_sample, efficiency
 
     def crossover_sample(self, sample1, sample2, constraint):
@@ -61,7 +50,7 @@ class EvolutionFinder:
                         )
 
             efficiency = self.efficiency_predictor.get_efficiency(new_sample)
-            if efficiency <= constraint:
+            if self.efficiency_predictor.satisfy_constraint(efficiency, constraint):
                 return new_sample, efficiency
 
     def run_evolution_search(self, constraint, verbose=False, **kwargs):
@@ -78,8 +67,7 @@ class EvolutionFinder:
         best_info = None
         if verbose:
             print("Generate random population...")
-        for i in range(self.population_size):
-            print(f"{i+1}/{self.population_size}")
+        for _ in tqdm(range(self.population_size)):
             sample, efficiency = self.random_valid_sample(constraint)
             child_pool.append(sample)
             efficiency_pool.append(efficiency)
@@ -138,4 +126,4 @@ class EvolutionFinder:
 
                 t.update(1)
 
-        return best_valids, best_info
+        return best_info
