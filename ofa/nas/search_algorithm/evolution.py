@@ -79,7 +79,6 @@ class EvolutionFinder:
         if verbose:
             print("Generate random population...")
         for i in range(self.population_size):
-            print(f"{i+1}/{self.population_size}")
             sample, efficiency = self.random_valid_sample(constraint)
             child_pool.append(sample)
             efficiency_pool.append(efficiency)

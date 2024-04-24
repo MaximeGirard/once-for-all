@@ -8,6 +8,8 @@ from ofa.imagenet_classification.elastic_nn.networks import OFAMobileNetV3
 from ofa.utils import AverageMeter
 from ofa.nas.accuracy_predictor import MobileNetArchEncoder
 from viz import draw_arch
+from peak_memory_efficiency import PeakMemoryEfficiency
+import matplotlib.pyplot as plt
 
 # Define arguments
 args = {
@@ -57,6 +59,8 @@ arch_encoder = MobileNetArchEncoder(
     expand_list=args["expand_list"],
     ks_list=args["ks_list"],
 )
+
+efficiency_predictor = PeakMemoryEfficiency(ofa_net=ofa_network)
 
 
 # Function to validate model
@@ -128,11 +132,25 @@ min_config = {
     "d": [2, 2, 2, 2, 2],
     "image_size": 128,
 }
+low_memory_config = {
+    "ks": [7, 7, 7, 5, 5, 3, 7, 7, 7, 7, 7, 7, 7, 3, 5, 5, 5, 3, 7, 5],
+    "e": [3, 3, 3, 6, 4, 6, 6, 4, 6, 6, 3, 6, 6, 6, 4, 6, 6, 6, 6, 6],
+    "d": [3, 4, 4, 4, 4],
+    "image_size": 160,
+}
+
 
 random_config = run_manager.net.sample_active_subnet()
 random_config["image_size"] = random.choice(args["image_size"])
 
-config = random_config
+# config = random_config
+#config = max_config
+config = min_config
+#config = low_memory_config
+
+name = "min_config"
+# Create directory for nets_graphs/{name}
+os.makedirs(f"nets_graphs/{name}", exist_ok=True)
 
 # test_subnet(run_manager, config)
 run_manager.net.set_active_subnet(ks=config["ks"], e=config["e"], d=config["d"])
@@ -143,5 +161,17 @@ print(subnet)
 draw_arch(
     ofa_net=run_manager.net,
     resolution=config["image_size"],
-    out_name="nets_graphs/random_net",
+    out_name=f"nets_graphs/{name}/subnet",
 )
+
+peak_act, history = efficiency_predictor.count_peak_activation_size(
+    subnet, (1, 3, config["image_size"], config["image_size"]), get_hist=True
+)
+
+# Draw histogram
+plt.bar(range(len(history)), history)
+plt.xlabel('Time')
+plt.ylabel('Memory Occupation')
+plt.title('Memory Occupation over time')
+plt.savefig(f'nets_graphs/{name}/memory_histogram.png')
+plt.show()

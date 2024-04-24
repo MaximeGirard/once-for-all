@@ -18,7 +18,9 @@ from ofa.imagenet_classification.networks import MobileNetV3
 
 # This class is used to predict the peak memory usage of a given architecture
 class PeakMemoryEfficiency(BaseEfficiencyModel):
-    def count_peak_activation_size(self, net, data_shape):
+    def count_peak_activation_size(self, net, data_shape, get_hist=False):
+        activation_hist = []
+
         def record_in_out_size(m, x, y):
             x = x[0]
             m.input_size = torch.Tensor([x.numel()])
@@ -39,11 +41,10 @@ class PeakMemoryEfficiency(BaseEfficiencyModel):
                 m = m.conv
             elif hasattr(m, "linear"):
                 m = m.linear
-                return 0
             assert isinstance(m, (nn.Conv2d, nn.Linear))
             return m.input_size.item() + m.output_size.item()
 
-        def count_block(m):
+        def count_block(m, get_list=False):
             assert isinstance(m, ResidualBlock)
 
             if m.conv is None or isinstance(
@@ -56,13 +57,20 @@ class PeakMemoryEfficiency(BaseEfficiencyModel):
             if m.shortcut is None or isinstance(
                 m.shortcut, ZeroLayer
             ):  # no residual connection, just convs
-                return max(
-                    [
+                if get_list:
+                    return [
                         count_conv_mem(m.conv.inverted_bottleneck),
                         count_conv_mem(m.conv.depth_conv),
                         count_conv_mem(m.conv.point_linear),
                     ]
-                )
+                else:
+                    return max(
+                        [
+                            count_conv_mem(m.conv.inverted_bottleneck),
+                            count_conv_mem(m.conv.depth_conv),
+                            count_conv_mem(m.conv.point_linear),
+                        ]
+                    )
             else:  # convs and residual
                 if m.conv.inverted_bottleneck is not None:
                     residual_size = m.conv.inverted_bottleneck.conv.input_size.item()
@@ -70,15 +78,24 @@ class PeakMemoryEfficiency(BaseEfficiencyModel):
                     residual_size = m.conv.depth_conv.conv.input_size.item()
 
                 # consider residual size for later layers
-                return max(
-                    [
+                if get_list:
+                    return [
                         count_conv_mem(m.conv.inverted_bottleneck),
                         count_conv_mem(m.conv.depth_conv) + residual_size,
                         # | The output of point_linear conv is directly added to the residual in the forward pass
                         # v No memory overload is needed to store output then perform addition
                         count_conv_mem(m.mobile_inverted_conv.point_linear),
                     ]
-                )
+                else:
+                    return max(
+                        [
+                            count_conv_mem(m.conv.inverted_bottleneck),
+                            count_conv_mem(m.conv.depth_conv) + residual_size,
+                            # | The output of point_linear conv is directly added to the residual in the forward pass
+                            # v No memory overload is needed to store output then perform addition
+                            count_conv_mem(m.mobile_inverted_conv.point_linear),
+                        ]
+                    )
 
         if isinstance(net, nn.DataParallel):
             net = net.module
@@ -99,7 +116,16 @@ class PeakMemoryEfficiency(BaseEfficiencyModel):
             count_conv_mem(net.classifier),
         ] + [count_block(blk) for blk in net.blocks]
 
-        del net
+        activation_hist.append(count_conv_mem(net.first_conv))
+        for blk in net.blocks:
+            activation_hist += [count for count in count_block(blk, get_list=True) if count != 0]
+        activation_hist.append(count_conv_mem(net.final_expand_layer))
+        activation_hist.append(count_conv_mem(net.feature_mix_layer))
+        activation_hist.append(count_conv_mem(net.classifier))
+        
+        if get_hist:
+            return max(mem_list), activation_hist
+
         return max(mem_list)  # pick the peak mem
 
     # Return the number of parameter of the network during a memory peak
@@ -111,5 +137,5 @@ class PeakMemoryEfficiency(BaseEfficiencyModel):
             subnet = subnet.cuda()
         data_shape = (1, 3, arch_dict["image_size"], arch_dict["image_size"])
         peak_memory = self.count_peak_activation_size(subnet, data_shape)
-        #print(peak_memory)
+        # print(peak_memory)
         return peak_memory

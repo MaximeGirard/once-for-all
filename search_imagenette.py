@@ -10,10 +10,15 @@ from ofa.imagenet_classification.elastic_nn.networks import OFAMobileNetV3
 from predictor_imagenette import Predictor
 from viz import draw_arch
 from peak_memory_efficiency import PeakMemoryEfficiency
+import random
+import matplotlib.pyplot as plt
+import json
+import os
 
 args = {
     "dataset_path": "imagenette2/",
     "device": "cuda",
+    "res_dir": "subnets_data/",
     "ks_list": [3, 5, 7],
     "expand_list": [3, 4, 6],
     "depth_list": [2, 3, 4],
@@ -79,15 +84,54 @@ efficiency_predictor = PeakMemoryEfficiency(ofa_net=ofa_network)
 #efficiency_predictor = Mbv3FLOPsModel(ofa_net=ofa_network)
 
 finder = EvolutionFinder(accuracy_predictor=model, efficiency_predictor=efficiency_predictor, max_time_budget=10)
-best_valids, best_info = finder.run_evolution_search(500e3, verbose=True)
 
-config = best_info[1]
+N_search = 50
+for i in range(N_search):
+    print(f"Running search {i}/{N_search}")
+    
+    constraint = random.randint(300, 350)*1e3
+    best_valids, best_info = finder.run_evolution_search(constraint, verbose=True)
 
-draw_arch(
-    ofa_net=ofa_network,
-    resolution=config["image_size"],
-    out_name="nets_graphs/search_result",
-)
+    config = best_info[1]
+    peak_mem = int(best_info[2])
+    acc = best_info[0]
+    
 
+    ofa_network.set_active_subnet(ks=config["ks"], e=config["e"], d=config["d"])
 
-print("Best Information:", best_info)
+    subnet = ofa_network.get_active_subnet()
+    print(subnet)
+
+    name = "search_" + str(random.randint(10000000, 99999999))
+
+    draw_arch(
+        ofa_net=ofa_network,
+        resolution=config["image_size"],
+        out_name=os.path.join(args["res_dir"], name, "subnet"),
+    )
+
+    peak_act, history = efficiency_predictor.count_peak_activation_size(
+        subnet, (1, 3, config["image_size"], config["image_size"]), get_hist=True
+    )
+
+    # Draw histogram
+    plt.clf()
+    plt.bar(range(len(history)), history)
+    plt.xlabel('Time')
+    plt.ylabel('Memory Occupation')
+    plt.title('Memory Occupation over time')
+    plt.savefig(os.path.join(args["res_dir"], name, "memory_histogram.png"))
+    plt.show()
+    print("Best Information:", best_info)
+    
+    # log informations in a json
+    data = {
+        "accuracy": acc,
+        "peak_memory": peak_mem,
+        "config": config,
+        "memory_history": history,
+    }
+    
+    info_path = os.path.join(args["res_dir"], name, "info.json")
+    with open(info_path, "w") as f:
+        json.dump(data, f)
